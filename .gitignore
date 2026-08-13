@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+*.log
+.env
+.npmrc
+
+# pnpm only — pnpm-lock.yaml is the tracked lockfile.
+package-lock.json
+yarn.lock
+
+AGENTS.md
+CLAUDE.md

@@ -1,0 +1,54 @@
+{
+  "name": "@hanzo/frame",
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.17.0",
+  "description": "The film at the top of the page. One full-bleed hero video primitive — two masters picked by orientation, an SSR-correct still, reduced motion honoured, no loop.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hanzoai/frame.git"
+  },
+  "homepage": "https://hanzo.ai",
+  "author": "Hanzo AI",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "pnpm clean && tsc -p tsconfig.json && node scripts/check-dist.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm build",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "hanzo",
+    "hero",
+    "video",
+    "react"
+  ],
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.2",
+    "react": "^19.2.0",
+    "typescript": "^5.9.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
