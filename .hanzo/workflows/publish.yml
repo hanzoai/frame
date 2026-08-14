@@ -1,12 +1,16 @@
 name: publish
 
-# Publishes @hanzo/frame when the version in package.json changes on main.
-# A version already on the registry is skipped, so re-runs are safe.
+# Publishes @hanzo/frame when the registry serves something older than this tree.
 
 on:
   push:
     branches: [main]
-    paths: ['package.json']
+    # No `paths:` filter. There is ONE question here — "does npmjs serve
+    # something older than this tree?" — and the skip step below answers it
+    # against the registry itself. A path gate in front of it guesses the same
+    # answer from the shape of a diff, and guesses wrong in both directions: it
+    # misses a publish that a lockfile or build change should carry, and it
+    # fires on a version edit that changes nothing.
   workflow_dispatch:
 
 permissions:
@@ -41,10 +45,50 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
           pnpm test
+      - name: Fetch the npm token from KMS
+        id: npmtok
+        if: steps.check.outputs.skip != 'true'
+        # KMS is where a secret lives. The token is read at run time from the org
+        # root with the same machine identity the rest of the fleet uses, so there
+        # is nothing new to rotate and no npm credential sits on the forge.
+        # @hanzo/ui's publish.yml reads it from the same place — one way, not two.
+        env:
+          KMS_CLIENT_ID: ${{ secrets.KMS_CLIENT_ID }}
+          KMS_CLIENT_SECRET: ${{ secrets.KMS_CLIENT_SECRET }}
+          KMS_ENDPOINT: ${{ vars.KMS_ENDPOINT || 'https://kms.hanzo.ai' }}
+          KMS_SECRET_ENV: ${{ vars.KMS_SECRET_ENV || 'prod' }}
+          # NPM_TOKEN sits at the org root, not under deploy/ (which holds
+          # CLOUDFLARE_*, GIT_TOKEN, KUBECONFIG, UNIVERSE_PIN_TOKEN). Empty means
+          # root; set KMS_NPM_PATH to move it without editing this file.
+          KMS_NPM_PATH: ${{ vars.KMS_NPM_PATH || '' }}
+        run: |
+          token=$(curl -fsS "${KMS_ENDPOINT}/v1/kms/auth/login" \
+            -H 'Content-Type: application/json' \
+            -d "{\"clientId\":\"${KMS_CLIENT_ID}\",\"clientSecret\":\"${KMS_CLIENT_SECRET}\"}" \
+            | jq -r '.accessToken // empty')
+          if [ -z "${token}" ]; then
+            echo "::error::KMS login failed at ${KMS_ENDPOINT}/v1/kms/auth/login (check KMS_CLIENT_ID/KMS_CLIENT_SECRET)."
+            exit 1
+          fi
+          # The read is org-scoped by the TOKEN's owner claim, not by a path
+          # segment: the flat form is what cloud's embedded KMS serves, and it
+          # answers {name, env, value}. The older
+          # /v1/kms/orgs/<org>/secrets/... form with .secret.value 404s here.
+          secret_url="${KMS_ENDPOINT}/v1/kms/secrets/${KMS_NPM_PATH:+${KMS_NPM_PATH}/}NPM_TOKEN?env=${KMS_SECRET_ENV}"
+          # No -f: a 404 must report WHICH path was empty, not just exit 22.
+          npm_token=$(curl -sS "${secret_url}" -H "Authorization: Bearer ${token}" | jq -r '.value // empty')
+          if [ -z "${npm_token}" ]; then
+            echo "::error::No NPM_TOKEN at ${secret_url}."
+            echo "::error::Put it there, or set the KMS_NPM_PATH variable to the path that has it."
+            exit 1
+          fi
+          # Masked before it is ever an output, so it cannot surface in a log.
+          echo "::add-mask::${npm_token}"
+          echo "token=${npm_token}" >> "$GITHUB_OUTPUT"
       - name: Publish
         if: steps.check.outputs.skip != 'true'
         # npm, not pnpm: pnpm publish adds git checks a CI checkout fails.
         # --no-provenance: a token publish 422s without it.
         run: npm publish --access public --no-provenance
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ steps.npmtok.outputs.token }}
